@@ -2,3 +2,6 @@
 /craft/storage/*
 !/craft/storage/logo/*
 /vendor
+
+.idea
+craft/config/db.php
