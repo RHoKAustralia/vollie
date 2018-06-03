@@ -5,3 +5,4 @@
 
 .idea
 craft/config/db.php
+craft/config/parameters.php

@@ -1,0 +1,7 @@
+<?php
+return [
+    'rhok' => [
+        'mailchimpApiKey' => 'FILL THIS',
+        'mailchimpListId' => 'FILL THIS'
+    ]
+];

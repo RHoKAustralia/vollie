@@ -7,6 +7,5 @@
  * You can see a list of the default settings in craft/app/etc/config/defaults/general.php
  */
 
-return array(
-
-);
+$parameters = require_once __DIR__ . '/parameters.php';
+return $parameters + [];
