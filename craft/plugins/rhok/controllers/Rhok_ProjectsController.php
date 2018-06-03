@@ -10,7 +10,7 @@ class Rhok_ProjectsController extends BaseController
      * @param $status
      * @param $hash
      */
-    public function updateStatus($projectId, $status, $hash)
+    public function actionUpdateStatus($projectId, $status, $hash)
     {
         $success = false;
         if ($success) {
