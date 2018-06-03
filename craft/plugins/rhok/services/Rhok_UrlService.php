@@ -7,7 +7,8 @@ class Rhok_UrlService extends BaseApplicationComponent
 
     public function generateStatusUpdateUrl($projectId, $status)
     {
-        return UrlHelper::getActionUrl('rhok/projects/updateStatus', ['projectId' => $projectId, 'status' => $status]);
+        $path = UrlHelper::getActionUrl('rhok/projects/updateStatus', ['projectId' => $projectId, 'status' => $status]);
+        return str_replace('console?p=', 'index.php?p=', $path);
     }
 
 }

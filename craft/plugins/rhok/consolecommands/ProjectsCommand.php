@@ -50,9 +50,9 @@ class ProjectsCommand extends BaseCommand
             echo 'Sending email to ', $email, PHP_EOL;
             craft()->email->sendEmailByKey($admin, 'rhok_statusUpdate', [
                 'project' => $project,
-                'activeLink' => '#active',
-                'completedLink' => '#completed',
-                'relistLink' => '#relist'
+                'activeLink' => craft()->rhok_url->generateStatusUpdateUrl($project->id, 'active'),
+                'completedLink' => craft()->rhok_url->generateStatusUpdateUrl($project->id, 'completed'),
+                'relistLink' => craft()->rhok_url->generateStatusUpdateUrl($project->id, 'pending')
             ]);
         }
     }
