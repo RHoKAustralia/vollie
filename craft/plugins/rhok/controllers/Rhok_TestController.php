@@ -18,11 +18,11 @@ class Rhok_TestController extends BaseController
      */
     public function actionTestUrlService($projectId, $status) {
 
-        $areParamsValid = craft()->rhok_url->validateProjectById($projectId, $status);
+        $isProjectValid = craft()->rhok_url->validateProjectById($projectId, $status);
         $isStatusValid = craft()->rhok_url->validateStatus($status);
 
         $this->returnJson([
-            'areParamsValid' => $areParamsValid,
+            'isProjectValid' => $isProjectValid,
             'isStatusValid' => $isStatusValid
         ]);
     }
