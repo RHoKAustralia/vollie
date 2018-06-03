@@ -7,5 +7,7 @@
             "email": "me@thoaionline.com"
         }
     ],
-    "require": {}
+    "require": {
+        "evolution7/craft-console": "^0.2.0"
+    }
 }
