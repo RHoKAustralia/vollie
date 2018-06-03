@@ -5,14 +5,25 @@ namespace Craft;
 class Rhok_UrlService extends BaseApplicationComponent
 {
 
-    public function generateStatusUpdateUrl($eventId, $status)
+    public function generateStatusUpdateUrl($projectId, $status)
     {
-        // Sample
-        return UrlHelper::getActionUrl('rhok/projects/updateStatus', ['param1' => 'value1', 'hash' => '123']);
+        return UrlHelper::getActionUrl('rhok/projects/updateStatus', ['projectId' => $projectId, 'status' => $status]);
     }
 
-    public function validateStatusUrlParams($params)
+    public function validateProjectById($projectId)
     {
-        return false;
+        $project = craft()->entries->getEntryById($projectId);
+
+        if (!($project instanceof EntryModel) || $project->getType()->handle !== 'projects') {
+            return false;
+        }
+
+        $shouldProjectBeUpdated = craft()->rhok_projects->projectShouldBeUpdated($project);
+
+        return $shouldProjectBeUpdated;
+    }
+
+    public function validateStatus($status) {
+        return in_array($status, ['pending', 'active', 'submitted', 'completed', 'archived']);
     }
 }

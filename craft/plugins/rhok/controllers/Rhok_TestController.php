@@ -13,12 +13,18 @@ class Rhok_TestController extends BaseController
 {
 
     /**
-     * Exposes an endpoint to call a service function for testing.
+     * Exposes an endpoint to call the UrlService for testing.
      * http://localhost:8080/index.php/actions/rhok/test/testUrlService
      */
-    public function actionTestUrlService() {
+    public function actionTestUrlService($projectId, $status) {
 
-        $this->returnJson('123');
+        $areParamsValid = craft()->rhok_url->validateProjectById($projectId, $status);
+        $isStatusValid = craft()->rhok_url->validateStatus($status);
+
+        $this->returnJson([
+            'areParamsValid' => $areParamsValid,
+            'isStatusValid' => $isStatusValid
+        ]);
     }
 
 }
