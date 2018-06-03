@@ -21,8 +21,8 @@ $data = [
 syncMailchimp($data);
 
 function syncMailchimp($data) {
-    $apiKey = 'your api key';
-    $listId = 'your list id';
+    $apiKey = '27f133ba3016ec5067be3dcfdf164acf-us13';
+    $listId = '7f7abf4afe';
 
     $memberId = md5(strtolower($data['email']));
     $dataCenter = substr($apiKey,strpos($apiKey,'-')+1);
