@@ -4,22 +4,22 @@ namespace Craft;
 
 class Rhok_MailchimpService extends BaseApplicationComponent
 {
-    public function setMailChimpData($data)
+    public function subscribe($user)
     {
         $rhokConfig = craft()->config->get('rhok');
         $apiKey = $rhokConfig['mailchimpApiKey'];
         $listId = $rhokConfig['mailchimpListId'];
 
-        $memberId = md5(strtolower($data['email']));
+        $memberId = md5(strtolower($user['email']));
         $dataCenter = substr($apiKey, strpos($apiKey, '-') + 1);
         $url = 'https://' . $dataCenter . '.api.mailchimp.com/3.0/lists/' . $listId . '/members/' . $memberId;
 
         $json = json_encode([
-            'email_address' => $data['email'],
-            'status' => $data['status'], // "subscribed","unsubscribed","cleaned","pending"
+            'email_address' => $user['email'],
+            'status' => 'subscribed',
             'merge_fields' => [
-                'FNAME' => $data['firstname'],
-                'LNAME' => $data['lastname']
+                'FNAME' => $user['firstname'],
+                'LNAME' => $user['lastname']
             ]
         ]);
 
