@@ -6,17 +6,30 @@ class Rhok_ProjectsController extends BaseController
 {
 
     /**
-     * @param $projectId
-     * @param $status
-     * @param $hash
+     * Updates the status for a given project id.
+     *
+     * @param $projectId the id of the project to update
+     * @param $status the project status to update to
      */
-    public function actionUpdateStatus($projectId, $status, $hash)
+    public function actionUpdateStatus($projectId, $status)
     {
-        $success = false;
-        if ($success) {
-            return $this->renderTemplate('rhok/projects/update-result', ['project' => $project, 'status' => 'STATUS']);
-        } else {
+        $isProjectValid = craft()->rhok_projects->validateProjectById($projectId);
+        if (!$isProjectValid) {
+            throw new HttpException(400, 'Project was not valid');
+        }
 
+        $isStatusValid = craft()->rhok_projects->validateProjectById($status);
+        if ($isStatusValid) {
+            throw new HttpException(400, 'Status was not valid');
+        }
+
+
+        $success = craft()->rhok_projects->updateProjectStatus($projectId, $status);
+
+        if ($success) {
+            $project = craft()->entries->getEntryById($projectId);
+            return $this->renderTemplate('rhok/projects/update-result', ['project' => $project, 'status' => $status]);
+        } else {
             throw new HttpException(403, 'Forbidden');
         }
     }
