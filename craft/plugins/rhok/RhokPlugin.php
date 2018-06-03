@@ -19,4 +19,23 @@ class RhokPlugin extends BasePlugin
         return 'http://www.rhokaustralia.org/melbourne/';
     }
 
+    public function init()
+    {
+        parent::init();
+        $this->loadMailchimpIntegration();
+    }
+
+    private function loadMailchimpIntegration()
+    {
+        craft()->on('users.onActivateUser', function (Event $event) {
+            /** @var UserModel $user */
+            $user = $event->params['user'];
+            //TODO: Do whatever you need to do with the user here
+            craft()->rhok_mailchimp->subscribe([
+                'email' => 'me@thoaionline.com',
+                'firstname' => 'Thoai',
+                'lastname' => 'Nguyen'
+            ]);
+        });
+    }
 }
