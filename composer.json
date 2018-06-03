@@ -1,0 +1,11 @@
+{
+    "name": "rhok/vollie",
+    "description": "RHoK repository for Vollie (Winter 2018)",
+    "authors": [
+        {
+            "name": "Thoai Nguyen",
+            "email": "me@thoaionline.com"
+        }
+    ],
+    "require": {}
+}
