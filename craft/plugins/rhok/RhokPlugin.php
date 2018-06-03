@@ -25,6 +25,13 @@ class RhokPlugin extends BasePlugin
         $this->loadMailchimpIntegration();
     }
 
+    public function registerEmailMessages()
+    {
+        return array(
+            'rhok_statusUpdate',
+        );
+    }
+
     private function loadMailchimpIntegration()
     {
         craft()->on('users.onActivateUser', function (Event $event) {
