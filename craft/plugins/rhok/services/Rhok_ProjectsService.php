@@ -13,12 +13,19 @@ class Rhok_ProjectsService extends BaseApplicationComponent
             'limit' => 0
         ])->find();
 
-        $applicableProjects = array_filter($rawProjects, function ($project) use ($now) {
-            return ($project->projectStatus == 'active') ||
-                ($project->projectStatus == 'pending' && $project->datesApplicationsClose < $now);
-        });
+        $applicableProjects = array_filter($rawProjects, [$this, 'projectShouldBeUpdated']);
 
         return $applicableProjects;
     }
 
+    /**
+     * @param EntryModel $project
+     */
+    public function projectShouldBeUpdated($project)
+    {
+        $now = new \DateTime();
+        return ($project->projectStatus == 'active') ||
+            ($project->projectStatus == 'pending' && $project->datesApplicationsClose < $now);
+
+    }
 }
