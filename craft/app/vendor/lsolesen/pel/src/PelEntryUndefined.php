@@ -53,16 +53,16 @@ class PelEntryUndefined extends PelEntry
     /**
      * Make a new PelEntry that can hold undefined data.
      *
-     * @param
-     *            PelTag the tag which this entry represents. This
+     * @param integer $tag
+     *            which this entry represents. This
      *            should be one of the constants defined in {@link PelTag},
      *            e.g., {@link PelTag::SCENE_TYPE}, {@link
      *            PelTag::MAKER_NOTE} or any other tag with format {@link
      *            PelFormat::UNDEFINED}.
      *
-     * @param
-     *            string the data that this entry will be holding. Since
-     *            the format is undefined, no checking will be done on the data.
+     * @param string $data
+     *            the data that this entry will be holding. Since
+     *            the format is undefined, no checking will be done on the data. If no data are given, a empty string will be stored
      */
     public function __construct($tag, $data = '')
     {
@@ -74,8 +74,8 @@ class PelEntryUndefined extends PelEntry
     /**
      * Set the data of this undefined entry.
      *
-     * @param
-     *            string the data that this entry will be holding. Since
+     * @param string $data
+     *            the data that this entry will be holding. Since
      *            the format is undefined, no checking will be done on the data.
      */
     public function setValue($data)
@@ -109,7 +109,6 @@ class PelEntryUndefined extends PelEntry
     {
         switch ($this->tag) {
             case PelTag::FILE_SOURCE:
-
                 // CC (e->components, 1, v);
                 switch (ord($this->bytes{0})) {
                     case 0x03:
@@ -119,7 +118,6 @@ class PelEntryUndefined extends PelEntry
                 }
                 break;
             case PelTag::SCENE_TYPE:
-
                 // CC (e->components, 1, v);
                 switch (ord($this->bytes{0})) {
                     case 0x01:
@@ -129,7 +127,6 @@ class PelEntryUndefined extends PelEntry
                 }
                 break;
             case PelTag::COMPONENTS_CONFIGURATION:
-
                 // CC (e->components, 4, v);
                 $v = '';
                 for ($i = 0; $i < 4; $i ++) {
@@ -166,7 +163,6 @@ class PelEntryUndefined extends PelEntry
                 return $v;
                 break;
             case PelTag::MAKER_NOTE:
-
                 // TODO: handle maker notes.
                 return $this->components . ' bytes unknown MakerNote data';
                 break;

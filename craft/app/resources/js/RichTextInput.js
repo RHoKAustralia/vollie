@@ -1,11 +1,3 @@
-/**
- * @author    Pixel & Tonic, Inc. <support@pixelandtonic.com>
- * @copyright Copyright (c) 2014, Pixel & Tonic, Inc.
- * @license   http://craftcms.com/license Craft License Agreement
- * @see       http://craftcms.com
- * @package   craft.app.resources
- */
-
 (function($){
 
 
@@ -97,25 +89,9 @@ Craft.RichTextInput = Garnish.Base.extend(
 			}
 		}
 
-		var callbacks = {
+        this.redactorConfig.callbacks = {
 			init: Craft.RichTextInput.handleRedactorInit
 		};
-
-		if (typeof this.redactorConfig.callbacks == typeof [])
-		{
-			// Merge them together
-			for (var i in callbacks)
-			{
-				if (typeof this.redactorConfig.callbacks[i] != typeof undefined)
-				{
-					this.redactorConfig.callbacks[i] = this.mergeCallbacks(callbacks[i], this.redactorConfig.callbacks[i]);
-				}
-			}
-		}
-		else
-		{
-			this.redactorConfig.callbacks = callbacks;
-		}
 
 		// Initialize Redactor
 		this.$textarea = $('#'+this.id);
@@ -142,11 +118,19 @@ Craft.RichTextInput = Garnish.Base.extend(
 		return function() {
 			callback1.apply(this, arguments);
 			callback2.apply(this, arguments);
-		}
+		};
 	},
 
 	initRedactor: function()
 	{
+		if (this.redactorConfig.toolbarFixed) {
+			// Set the toolbarFixedTarget depending on the context
+			var target = this.$textarea.closest('.lp-editor');
+			if (target.length) {
+				this.redactorConfig.toolbarFixedTarget = target;
+			}
+		}
+
 		Craft.RichTextInput.currentInstance = this;
 		this.$textarea.redactor(this.redactorConfig);
 		delete Craft.RichTextInput.currentInstance;
@@ -171,7 +155,7 @@ Craft.RichTextInput = Garnish.Base.extend(
 
 		if (this.redactor.opts.toolbarFixed && !Craft.RichTextInput.scrollPageOnReady)
 		{
-			Garnish.$doc.on('ready', function() {
+			Garnish.$doc.ready(function() {
 				Garnish.$doc.trigger('scroll');
 			});
 
@@ -284,7 +268,7 @@ Craft.RichTextInput = Garnish.Base.extend(
 								url += ':'+transform;
 							}
 
-							this.redactor.insert.node($('<img src="'+url+'" />')[0]);
+							this.redactor.insert.node($('<'+this.redactor.opts.imageTag+'><img src="'+url+'" /></>')[0]);
 							this.redactor.code.sync();
 						}
 						this.redactor.observe.images();
@@ -351,7 +335,8 @@ Craft.RichTextInput = Garnish.Base.extend(
 					{
 						this.redactor.selection.restore();
 						var element   = elements[0],
-							url       = element.url+'#'+settings.elementType.toLowerCase()+':'+element.id,
+							elementTypeHandle = settings.elementType.replace(/^\w|_\w/g, function (match) { return match.toLowerCase(); }),
+							url       = element.url+'#'+elementTypeHandle+':'+element.id,
 							selection = this.redactor.selection.text(),
 							title = selection.length > 0 ? selection : element.label;
 						this.redactor.insert.node($('<a href="'+url+'">'+title+'</a>')[0]);
@@ -400,20 +385,22 @@ Craft.RichTextInput = Garnish.Base.extend(
 		}
 
 		// Create a placeholder button
-		var placeholderKey = key+'_placeholder';
-		this.redactor.button.addAfter(key, placeholderKey);
+		var $placeholder = this.redactor.button.addAfter(key, key+'_placeholder');
 
 		// Remove the original
 		this.redactor.button.remove(key);
 
 		// Add the new one
-		var $btn = this.redactor.button.addAfter(placeholderKey, key, title);
-
-		// Set the dropdown
-		//this.redactor.button.addDropdown($btn, dropdown);
+		// (Can't just use button.addAfter() here because it doesn't let us specify
+		// full button properties (e.g. icon); just title)
+        var $btn = this.redactor.button.build(key, {
+        	title: title,
+			icon: true
+        });
+        $placeholder.parent().after($('<li>').append($btn));
 
 		// Remove the placeholder
-		this.redactor.button.remove(placeholderKey);
+		$placeholder.remove();
 
 		return $btn;
 	}

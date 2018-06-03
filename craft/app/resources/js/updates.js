@@ -1,11 +1,3 @@
-/**
- * @author    Pixel & Tonic, Inc. <support@pixelandtonic.com>
- * @copyright Copyright (c) 2014, Pixel & Tonic, Inc.
- * @license   http://craftcms.com/license Craft License Agreement
- * @see       http://craftcms.com
- * @package   craft.app.resources
- */
-
 (function($) {
 
 
@@ -54,7 +46,7 @@ var UpdatesPage = Garnish.Base.extend(
 					}
 				}
 
-				if (this.totalAvailableUpdates) {
+				if (this.totalAvailableUpdates || (response.v3Plugins && response.v3Plugins.length)) {
 					$graphic.remove();
 					$status.remove();
 
@@ -74,6 +66,9 @@ var UpdatesPage = Garnish.Base.extend(
 						.appendTo(Craft.cp.$pageHeader)
 						.append($('<h1/>').text(headingText));
 
+					if (response.v3Plugins && response.v3Plugins.length) {
+						this.processV3Plugins(response.v3Plugins);
+					}
 				} else {
 					$graphic.addClass('success');
 					$status.text(Craft.t('You’re all up-to-date!'));
@@ -92,6 +87,51 @@ var UpdatesPage = Garnish.Base.extend(
 		this.totalAvailableUpdates++;
 
 		var update = new Update(updateInfo, isPlugin);
+	},
+
+	processV3Plugins: function(plugins)
+	{
+		if (this.totalAvailableUpdates) {
+			$('<hr/>').appendTo(Craft.cp.$main);
+		}
+		var $pane = $('<div class="pane"/>').appendTo(Craft.cp.$main);
+		var $paneHeader = $('<div class="header"/>').appendTo($pane);
+		$('<h1/>', {'class': 'left', text: 'Craft 3 Plugin Availability'}).appendTo($paneHeader);
+		var $table = $(
+			'<table class="data fullwidth">' +
+			'<thead>' +
+			'<tr>' +
+			'<th scope="col" colspan="2">' + Craft.t('Plugin') + '</th>' +
+			'<th scope="col">' + Craft.t('Developer') + '</th>' +
+			'<th scope="col">' + Craft.t('Status') + '</th>' +
+			'<th scope="col">' + Craft.t('Price') + '</th>' +
+			'</tr>' +
+			'</thead>' +
+			'<tbody></tbody>' +
+			'</table>'
+		).appendTo($pane);
+		$('<p/>', {
+			'class': 'centeralign',
+			css: { 'margin-top': '24px' },
+			html: 'Check out the <a href="http://craftcms.com/craft3upgradeguide">Craft 3 upgrade guide</a> for information about upgrading your site to Craft 3.'
+		}).appendTo($pane);
+
+		var $tbody = $table.find('tbody');
+
+		var $tr, plugin;
+
+		for (var i = 0; i < plugins.length; i++) {
+			plugin = plugins[i];
+			$(
+				'<tr>' +
+				'<td class="thin"><img src="' + plugin.iconUrl + '" width="36" height="36"></td>' +
+				'<td><strong>' + plugin.name + '</strong></td>' +
+				'<td>' + (plugin.developerUrl ? '<a href="' + plugin.developerUrl + '" target="_blank">' + plugin.developerName + '</a>' : plugin.developerName) + '</td>' +
+				'<td><span class="status ' + plugin.statusColor + '"></span>' + plugin.status + '</td>' +
+				'<td>' + (plugin.formattedPrice || '') + '</td>' +
+				'</tr>'
+			).appendTo($tbody);
+		}
 	}
 });
 
@@ -137,7 +177,8 @@ var Update = Garnish.Base.extend(
 
 	createDownloadButton: function()
 	{
-		var $buttonContainer = $('<div class="buttons right"/>').appendTo(this.$paneHeader);
+		var $buttonContainer = $('<div class="buttons right"/>').appendTo(this.$paneHeader),
+			$updateBtn;
 
 		// Is a manual update required?
 		if (this.manualUpdateRequired)
@@ -147,11 +188,12 @@ var Update = Garnish.Base.extend(
 		else
 		{
 			var $btnGroup = $('<div class="btngroup submit"/>').appendTo($buttonContainer),
-				$updateBtn = $('<div class="btn submit">'+Craft.t('Update')+'</div>').appendTo($btnGroup),
 				$menuBtn = $('<div class="btn submit menubtn"/>').appendTo($btnGroup),
 				$menu = $('<div class="menu" data-align="right"/>').appendTo($btnGroup),
 				$menuUl = $('<ul/>').appendTo($menu),
 				$downloadLi = $('<li/>').appendTo($menuUl);
+
+			$updateBtn = $('<div class="btn submit">'+Craft.t('Update')+'</div>').insertBefore($menuBtn);
 
 			this.$downloadBtn = $('<a>'+Craft.t('Download')+'</a>').appendTo($downloadLi);
 
@@ -280,7 +322,7 @@ Release = Garnish.Base.extend(
 
 		if (this.releaseInfo.critical)
 		{
-			heading += ' <span class="critical">'+Craft.t('Critical')+'</span>'
+			heading += ' <span class="critical">'+Craft.t('Critical')+'</span>';
 		}
 
 		$('<h2/>', {html: heading}).appendTo(this.$container);

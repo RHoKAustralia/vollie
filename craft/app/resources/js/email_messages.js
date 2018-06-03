@@ -1,11 +1,3 @@
-/**
- * @author    Pixel & Tonic, Inc. <support@pixelandtonic.com>
- * @copyright Copyright (c) 2014, Pixel & Tonic, Inc.
- * @license   http://craftcms.com/license Craft License Agreement
- * @see       http://craftcms.com
- * @package   craft.app.resources
- */
-
 (function($) {
 
 
@@ -63,9 +55,9 @@ var Message = Garnish.Base.extend(
 	updateHtmlFromModal: function()
 	{
 		var subject = this.modal.$subjectInput.val(),
-			body = this.modal.$bodyInput.val().replace(/\n/g, '<br>');
+			body = Craft.escapeHtml(this.modal.$bodyInput.val()).replace(/\n/g, '<br>');
 
-		this.$subject.html(subject);
+		this.$subject.text(subject);
 		this.$body.html(body);
 	}
 
@@ -137,8 +129,8 @@ var MessageSettingsModal = Garnish.Modal.extend(
 				this.addListener(this.$cancelBtn, 'click', 'cancel');
 
 				setTimeout($.proxy(function() {
-					this.$subjectInput.focus();
-				}, this), 100)
+					this.$subjectInput.trigger('focus');
+				}, this), 100);
 			}
 
 		}, this));

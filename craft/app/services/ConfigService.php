@@ -496,11 +496,17 @@ class ConfigService extends BaseApplicationComponent
 	/**
 	 * Returns the configured elevated session duration in seconds.
 	 *
-	 * @return int The elevated session duration in seconds.
+	 * @return int|boolean The elevated session duration in seconds or false if it has been disabled.
 	 */
 	public function getElevatedSessionDuration()
 	{
 		$duration = craft()->config->get('elevatedSessionDuration');
+
+		// See if it has been disabled.
+		if ($duration === false)
+		{
+			return false;
+		}
 
 		if ($duration)
 		{
@@ -545,124 +551,6 @@ class ConfigService extends BaseApplicationComponent
 		}
 
 		return $this->getCpLogoutPath();
-	}
-
-	/**
-	 * Returns a user’s Activate Account path with a given activation code and user’s UID.
-	 *
-	 * @param string $code The activation code.
-	 * @param string $uid  The user’s UID.
-	 * @param bool   $full Whether a full URL should be returned. Defauls to `true`.
-	 *
-	 * @return string The Activate Account path.
-	 *
-	 * @internal This is a little awkward in that the method is called getActivateAccount**Path**, but by default it
-	 * returns a full **URL**. And in the event that you do just want the path (as the name of the method implies),
-	 * you have to pass in a $code and $uid just to be able to set the 4th argument to `false`, even though those
-	 * variables will won't be used.
-	 *
-	 * @todo Create a new getActivateAccountUrl() method (probably elsewhere, such as UrlHelper) which handles
-	 * everything that setting $full to `true` currently does here. The function should accept an actual UserModel
-	 * rather than their UID, for consistency with {@link getSetPasswordPath()}. Let this function continue working as a
-	 * wrapper for getActivateAccountUrl() for the time being, with deprecation logs.
-	 */
-	public function getActivateAccountPath($code, $uid, $full = true)
-	{
-		$url = $this->get('actionTrigger').'/users/setPassword';
-
-		if (!$full)
-		{
-			return $url;
-		}
-
-		if (craft()->request->isSecureConnection())
-		{
-			$url = UrlHelper::getUrl($url, array(
-				'code' => $code, 'id' => $uid
-			), 'https');
-		}
-
-		$url = UrlHelper::getUrl($url, array(
-			'code' => $code, 'id' => $uid
-		));
-
-		// Special case because we don't want the CP trigger showing in the email.
-		return str_replace($this->get('cpTrigger').'/', '', $url);
-	}
-
-	/**
-	 * Returns a user’s Set Password path with a given activation code and user’s UID.
-	 *
-	 * @param string    $code    The activation code.
-	 * @param string    $uid     The user’s UID.
-	 * @param UserModel $user The user.
-	 * @param bool      $full Whether a full URL should be returned. Defaults to `false`.
-	 *
-	 * @return string The Set Password path.
-	 *
-	 * @internal This is a little awkward in that the method is called getActivateAccount**Path**, but it's also capable
-	 * of returning a full **URL**. And it requires you pass in both a user’s UID *and* the UserModel - presumably we
-	 * could get away with just the UserModel and get the UID from that.
-	 *
-	 * @todo Create a new getSetPasswordUrl() method (probably elsewhere, such as UrlHelper) which handles
-	 * everything that setting $full to `true` currently does here. The function should not accetp a UID since that's
-	 * already covered by the UserModel. Let this function continue working as a wrapper for getSetPasswordUrl() for the
-	 * time being, with deprecation logs.
-	 */
-	public function getSetPasswordPath($code, $uid, $user, $full = false)
-	{
-		if ($user->can('accessCp'))
-		{
-			$url = $this->getCpSetPasswordPath();
-
-			if ($full)
-			{
-				if (craft()->request->isSecureConnection())
-				{
-					$url = UrlHelper::getCpUrl($url, array(
-						'code' => $code, 'id' => $uid
-					), 'https');
-				}
-				else
-				{
-					$url = UrlHelper::getCpUrl($url, array(
-						'code' => $code, 'id' => $uid
-					));
-				}
-			}
-		}
-		else
-		{
-			$url = $this->getLocalized('setPasswordPath');
-
-			if ($full)
-			{
-				if (craft()->request->isSecureConnection())
-				{
-					$url = UrlHelper::getUrl($url, array(
-						'code' => $code, 'id' => $uid
-					), 'https');
-				}
-				else
-				{
-					$url = UrlHelper::getUrl($url, array(
-						'code' => $code, 'id' => $uid
-					));
-				}
-			}
-		}
-
-		return $url;
-	}
-
-	/**
-	 * Returns the path to the CP’s Set Password page.
-	 *
-	 * @return string The Set Password path.
-	 */
-	public function getCpSetPasswordPath()
-	{
-		return 'setpassword';
 	}
 
 	/**
@@ -747,18 +635,23 @@ class ConfigService extends BaseApplicationComponent
 			return $configVal;
 		}
 
+		// TODO: Remove in v3
 		if ($configVal === 'build-only')
 		{
-			// Return whether the version number has changed at all
-			return ($updateInfo->app->latestVersion === craft()->getVersion());
+			craft()->deprecator->log('allowAutoUpdates:build-only', 'The ‘allowAutoUpdates’ config setting should be set to “patch-only” instead of “build-only”.');
+			$configVal = 'patch-only';
+		}
+
+		if ($configVal === 'patch-only')
+		{
+			// Return true if the major and minor versions are still the same
+			return (AppHelper::getMajorMinorVersion($updateInfo->app->latestVersion) == AppHelper::getMajorMinorVersion(craft()->getVersion()));
 		}
 
 		if ($configVal === 'minor-only')
 		{
-			// Return whether the major version number has changed
-			$localMajorVersion = array_shift(explode('.', craft()->getVersion()));
-			$updateMajorVersion = array_shift(explode('.', $updateInfo->app->latestVersion));
-			return ($localMajorVersion === $updateMajorVersion);
+			// Return true if the major version is still the same
+			return (AppHelper::getMajorVersion($updateInfo->app->latestVersion) == AppHelper::getMajorVersion(craft()->getVersion()));
 		}
 
 		return false;

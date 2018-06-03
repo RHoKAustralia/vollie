@@ -113,7 +113,8 @@ class Image extends BaseImage
 	{
 		if (!IOHelper::fileExists($path))
 		{
-			throw new Exception(Craft::t('No file exists at the path “{path}”', array('path' => $path)));
+			Craft::log('Tried to load an image at '.$path.', but the file does not exist.', LogLevel::Error);
+			throw new Exception(Craft::t('No file exists at the given path.'));
 		}
 
 		if (!craft()->images->checkMemoryForImage($path))
@@ -126,7 +127,7 @@ class Image extends BaseImage
 
 		if ($mimeType !== null && strncmp($mimeType, 'image/', 6) !== 0)
 		{
-			throw new Exception(Craft::t('The file “{path}” does not appear to be an image.', array('path' => $path)));
+			throw new Exception(Craft::t('The file “{name}” does not appear to be an image.', array('name' => IOHelper::getFileName($path))));
 		}
 
 		try
@@ -135,11 +136,15 @@ class Image extends BaseImage
 		}
 		catch (\Exception $exception)
 		{
-			throw new Exception(Craft::t('The file “{path}” does not appear to be an image.', array('path' => $path)));
+			throw new Exception(Craft::t('The file “{name}” does not appear to be an image.', array('name' => IOHelper::getFileName($path))));
 		}
 
 		// If we're using Imagick _and_ one that supports it, convert CMYK to RGB, save and re-open.
-		if (!craft()->images->isGd() && $this->_image->getImagick()->getImageColorspace() == \Imagick::COLORSPACE_CMYK && method_exists($this->_image->getImagick(), 'transformimagecolorspace'))
+		if (!craft()->images->isGd()
+            && !craft()->config->get('preserveCmykColorspace')
+            && method_exists($this->_image->getImagick(), 'getImageColorspace')
+            && $this->_image->getImagick()->getImageColorspace() == \Imagick::COLORSPACE_CMYK
+            && method_exists($this->_image->getImagick(), 'transformimagecolorspace'))
 		{
 			$this->_image->getImagick()->transformimagecolorspace(\Imagick::COLORSPACE_SRGB);
 			$this->_image->save();
@@ -192,6 +197,12 @@ class Image extends BaseImage
 			{
 				$croppedLayer = $layer->crop($startingPoint, $newSize);
 				$gif->layers()->add($croppedLayer);
+
+				// Let's update dateUpdated in case this is going to take awhile.
+				if ($index = craft()->assetTransforms->getActiveTransformIndexModel())
+				{
+					craft()->assetTransforms->storeTransformIndexData($index);
+				}
 			}
 
 			$this->_image = $gif;
@@ -248,7 +259,6 @@ class Image extends BaseImage
 			$factor = min($this->getWidth() / $targetWidth, $this->getHeight() / $targetHeight);
 			$newHeight = round($this->getHeight() / $factor);
 			$newWidth = round($this->getWidth() / $factor);
-
 
 			$this->resize($newWidth, $newHeight);
 
@@ -346,6 +356,12 @@ class Image extends BaseImage
 			{
 				$resizedLayer = $layer->resize($newSize, $this->_getResizeFilter());
 				$gif->layers()->add($resizedLayer);
+
+				// Let's update dateUpdated in case this is going to take awhile.
+				if ($index = craft()->assetTransforms->getActiveTransformIndexModel())
+				{
+					craft()->assetTransforms->storeTransformIndexData($index);
+				}
 			}
 
 			$this->_image = $gif;
@@ -354,7 +370,7 @@ class Image extends BaseImage
 		{
 			if (craft()->images->isImagick())
 			{
-				$this->_image->smartResize(new \Imagine\Image\Box($targetWidth, $targetHeight), (bool) craft()->config->get('preserveImageColorProfiles'), $this->_quality);
+				$this->_image->smartResize(new \Imagine\Image\Box($targetWidth, $targetHeight), (bool) craft()->config->get('preserveImageColorProfiles'), (bool) craft()->config->get('preserveExifData'), $this->_quality);
 			}
 			else
 			{
@@ -410,6 +426,8 @@ class Image extends BaseImage
 		if ($autoQuality && in_array($extension, array('jpeg', 'jpg', 'png')))
 		{
 			clearstatcache();
+			craft()->config->maxPowerCaptain();
+
 			$originalSize = IOHelper::getFileSize($this->_imageSourcePath);
 			$tempFile = $this->_autoGuessImageQuality($targetPath, $originalSize, $extension, 0, 200);
 			IOHelper::move($tempFile, $targetPath, true);
@@ -562,9 +580,6 @@ class Image extends BaseImage
 	 */
 	private function _autoGuessImageQuality($tempFileName, $originalSize, $extension, $minQuality, $maxQuality, $step = 0)
 	{
-		// Give ourselves some extra time.
-		@set_time_limit(30);
-
 		if ($step == 0)
 		{
 			$tempFileName = IOHelper::getFolderName($tempFileName).IOHelper::getFileName($tempFileName, false).'-temp.'.$extension;

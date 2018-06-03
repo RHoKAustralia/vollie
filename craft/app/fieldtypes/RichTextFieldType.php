@@ -41,42 +41,27 @@ class RichTextFieldType extends BaseFieldType
 	 */
 	public function getSettingsHtml()
 	{
-		$configOptions = array('' => Craft::t('Default'));
-		$configPath = craft()->path->getConfigPath().'redactor/';
-
-		if (IOHelper::folderExists($configPath))
-		{
-			$configFiles = IOHelper::getFolderContents($configPath, false, '\.json$');
-
-			if (is_array($configFiles))
-			{
-				foreach ($configFiles as $file)
-				{
-					$configOptions[IOHelper::getFileName($file)] = IOHelper::getFileName($file, false);
-				}
-			}
-		}
-
 		$columns = array(
-			'text'       => Craft::t('Text (stores about 64K)'),
-			'mediumtext' => Craft::t('MediumText (stores about 4GB)')
+			'text'       => 'text (~64K)',
+			'mediumtext' => 'mediumtext (~16MB)'
 		);
 
 		$sourceOptions = array();
 		foreach (craft()->assetSources->getPublicSources() as $source)
 		{
-			$sourceOptions[] = array('label' => $source->name, 'value' => $source->id);
+			$sourceOptions[] = array('label' => HtmlHelper::encode($source->name), 'value' => $source->id);
 		}
 
 		$transformOptions = array();
 		foreach (craft()->assetTransforms->getAllTransforms() as $transform)
 		{
-			$transformOptions[] = array('label' => $transform->name, 'value' => $transform->id );
+			$transformOptions[] = array('label' => HtmlHelper::encode($transform->name), 'value' => $transform->id );
 		}
 
 		return craft()->templates->render('_components/fieldtypes/RichText/settings', array(
 			'settings' => $this->getSettings(),
-			'configOptions' => $configOptions,
+			'redactorConfigOptions' => $this->_getRedactorConfigOptions(),
+			'purifierConfigOptions' => $this->_getPurifierConfigOptions(),
 			'assetSourceOptions' => $sourceOptions,
 			'transformOptions' => $transformOptions,
 			'columns' => $columns,
@@ -133,7 +118,7 @@ class RichTextFieldType extends BaseFieldType
 	 */
 	public function getInputHtml($name, $value)
 	{
-		$configJs = $this->_getConfigJson();
+		$configJs = $this->_getRedactorConfigJson();
 		$this->_includeFieldResources($configJs);
 
 		$id = craft()->templates->formatInputId($name);
@@ -165,14 +150,15 @@ class RichTextFieldType extends BaseFieldType
 
 		if (strpos($value, '{') !== false)
 		{
-			// Preserve the ref tags with hashes {type:id:url} => {type:id:url}#type:id
+			// Parse ref tags in URLs, while preserving the original tag values in the URL fragments
+			// e.g. {entry:id:url} => [entry-url]#entry:id:url
+			// Leave any other ref tags alone for the input, since they were probably manually added
 			$value = preg_replace_callback('/(href=|src=)([\'"])(\{(\w+\:\d+\:'.HandleValidator::$handlePattern.')\})(#[^\'"#]+)?\2/', function($matches)
 			{
-				return $matches[1].$matches[2].$matches[3].(!empty($matches[5]) ? $matches[5] : '').'#'.$matches[4].$matches[2];
+				list (, $attr, $q, $refTag, $ref) = $matches;
+				$fragment = isset($matches[5]) ? $matches[5] : '';
+				return $attr.$q.craft()->elements->parseRefs($refTag).$fragment.'#'.$ref.$q;
 			}, $value);
-
-			// Now parse 'em
-			$value = craft()->elements->parseRefs($value);
 		}
 
 		// Swap any <!--pagebreak-->'s with <hr>'s
@@ -205,16 +191,16 @@ class RichTextFieldType extends BaseFieldType
 			if ($this->getSettings()->purifyHtml)
 			{
 				$purifier = new \CHtmlPurifier();
-				$purifier->setOptions(array(
-					'Attr.AllowedFrameTargets' => array('_blank'),
-					'HTML.AllowedComments' => array('pagebreak'),
-				));
-
+				$purifier->setOptions($this->_getPurifierConfig());
 				$value = $purifier->purify($value);
 			}
 
 			if ($this->getSettings()->cleanupHtml)
 			{
+				// Swap no-break whitespaces for regular space
+				$value = preg_replace('/(&nbsp;|&#160;|\x{00A0})/u', ' ', $value);
+				$value = preg_replace('/  +/', ' ', $value);
+
 				// Remove <span> and <font> tags
 				$value = preg_replace('/<(?:span|font)\b[^>]*>/', '', $value);
 				$value = preg_replace('/<\/(?:span|font)>/', '', $value);
@@ -230,7 +216,24 @@ class RichTextFieldType extends BaseFieldType
 		// Find any element URLs and swap them with ref tags
 		$value = preg_replace_callback('/(href=|src=)([\'"])[^\'"#]+?(#[^\'"#]+)?(?:#|%23)(\w+):(\d+)(:'.HandleValidator::$handlePattern.')?\2/', function($matches)
 		{
-			return $matches[1].$matches[2].'{'.$matches[4].':'.$matches[5].(!empty($matches[6]) ? $matches[6] : ':url').'}'.(!empty($matches[3]) ? $matches[3] : '').$matches[2];
+			// Create the ref tag, and make sure :url is in there
+			$refTag = '{'.$matches[4].':'.$matches[5].(!empty($matches[6]) ? $matches[6] : ':url').'}';
+			$hash = (!empty($matches[3]) ? $matches[3] : '');
+
+			if ($hash)
+			{
+				// Make sure that the hash isn't actually part of the parsed URL
+				// (someone's Entry URL Format could be "#{slug}", etc.)
+				$url = craft()->elements->parseRefs($refTag);
+
+				if (mb_strpos($url, $hash) !== false)
+				{
+					$hash = '';
+				}
+			}
+
+
+			return $matches[1].$matches[2].$refTag.$hash.$matches[2];
 		}, $value);
 
 		// Encode any 4-byte UTF-8 characters.
@@ -291,6 +294,7 @@ class RichTextFieldType extends BaseFieldType
 	{
 		return array(
 			'configFile'            => AttributeType::String,
+			'purifierConfig'        => AttributeType::String,
 			'cleanupHtml'           => array(AttributeType::Bool, 'default' => true),
 			'purifyHtml'            => array(AttributeType::Bool, 'default' => true),
 			'columnType'            => array(AttributeType::String),
@@ -414,7 +418,7 @@ class RichTextFieldType extends BaseFieldType
 
 		$assetSourceIds = $this->getSettings()->availableAssetSources;
 
-		if (!$assetSourceIds)
+		if ($assetSourceIds === '*' || !$assetSourceIds)
 		{
 			$assetSourceIds = craft()->assetSources->getPublicSourceIds();
 		}
@@ -424,10 +428,19 @@ class RichTextFieldType extends BaseFieldType
 			'parentId' => ':empty:'
 		));
 
+		// Sort it by source order.
+		$list = array();
+
 		foreach ($folders as $folder)
 		{
-			$sources[] = 'folder:'.$folder->id;
+		    $list[$folder->sourceId] = $folder->id;
 		}
+
+		foreach ($assetSourceIds as $assetSourceId) {
+		    if (isset($list[$assetSourceId])) {
+                $sources[] = 'folder:'.$list[$assetSourceId];
+            }
+        }
 
 		return $sources;
 	}
@@ -458,11 +471,37 @@ class RichTextFieldType extends BaseFieldType
 	}
 
 	/**
+	 * Returns the available Redactor config options.
+	 *
+	 * @return array
+	 */
+	private function _getRedactorConfigOptions()
+	{
+		$options = array('' => Craft::t('Default'));
+		$path = craft()->path->getConfigPath().'redactor/';
+
+		if (IOHelper::folderExists($path))
+		{
+			$configFiles = IOHelper::getFolderContents($path, false, '\.json$');
+
+			if (is_array($configFiles))
+			{
+				foreach ($configFiles as $file)
+				{
+					$options[IOHelper::getFileName($file)] = IOHelper::getFileName($file, false);
+				}
+			}
+		}
+
+		return $options;
+	}
+
+	/**
 	 * Returns the Redactor config JSON used by this field.
 	 *
 	 * @return string
 	 */
-	private function _getConfigJson()
+	private function _getRedactorConfigJson()
 	{
 		if ($this->getSettings()->configFile)
 		{
@@ -479,6 +518,55 @@ class RichTextFieldType extends BaseFieldType
 	}
 
 	/**
+	 * Returns the available HTML Purifier config options.
+	 *
+	 * @return array
+	 */
+	private function _getPurifierConfigOptions()
+	{
+		$options = array('' => Craft::t('Default'));
+		$path = craft()->path->getConfigPath().'htmlpurifier/';
+
+		if (IOHelper::folderExists($path))
+		{
+			$configFiles = IOHelper::getFolderContents($path, false, '\.json$');
+
+			if (is_array($configFiles))
+			{
+				foreach ($configFiles as $file)
+				{
+					$options[IOHelper::getFileName($file)] = IOHelper::getFileName($file, false);
+				}
+			}
+		}
+
+		return $options;
+	}
+
+	/**
+	 * Returns the HTML Purifier config used by this field.
+	 *
+	 * @return array
+	 */
+	private function _getPurifierConfig()
+	{
+		$file = $this->getSettings()->purifierConfig;
+		$path = craft()->path->getConfigPath().'htmlpurifier/'.$file;
+
+		if (!$file || !IOHelper::fileExists($path))
+		{
+			return array(
+				'Attr.AllowedFrameTargets' => array('_blank'),
+				'HTML.AllowedComments' => array('pagebreak'),
+			);
+		}
+
+		$json = IOHelper::getFileContents($path);
+
+		return JsonHelper::decode($json);
+	}
+
+	/**
 	 * Includes the input resources.
 	 *
 	 * @param string $configJs
@@ -487,11 +575,9 @@ class RichTextFieldType extends BaseFieldType
 	 */
 	private function _includeFieldResources($configJs)
 	{
-		craft()->templates->includeCssResource('lib/redactor/redactor.css');
+		craft()->templates->includeCssResource('lib/redactor/redactor.min.css');
 
-		// Gotta use the uncompressed Redactor JS until the compressed one gets our Live Preview menu fix
-		craft()->templates->includeJsResource('lib/redactor/redactor.js');
-		//craft()->templates->includeJsResource('lib/redactor/redactor'.(craft()->config->get('useCompressedJs') ? '.min' : '').'.js');
+		craft()->templates->includeJsResource('lib/redactor/redactor'.(craft()->config->get('useCompressedJs') ? '.min' : '').'.js');
 
 		$this->_maybeIncludeRedactorPlugin($configJs, 'fullscreen', false);
 		$this->_maybeIncludeRedactorPlugin($configJs, 'source|html', false);

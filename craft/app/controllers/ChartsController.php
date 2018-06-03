@@ -13,59 +13,62 @@ namespace Craft;
  */
 class ChartsController extends BaseController
 {
-    // Public Methods
-    // =========================================================================
+	// Public Methods
+	// =========================================================================
 
-    /**
-     * Returns the data needed to display a New Users chart.
-     *
-     * @return void
-     */
-    public function actionGetNewUsersData()
-    {
-        $userGroupId = craft()->request->getRequiredPost('userGroupId');
-        $startDateParam = craft()->request->getRequiredPost('startDate');
-        $endDateParam = craft()->request->getRequiredPost('endDate');
+	/**
+	 * Returns the data needed to display a New Users chart.
+	 *
+	 * @return void
+	 */
+	public function actionGetNewUsersData()
+	{
+		$userGroupId = craft()->request->getRequiredPost('userGroupId');
+		$startDateParam = craft()->request->getRequiredPost('startDate');
+		$endDateParam = craft()->request->getRequiredPost('endDate');
 
-        $startDate = DateTime::createFromString($startDateParam, craft()->timezone);
-        $endDate = DateTime::createFromString($endDateParam, craft()->timezone);
-        $endDate->modify('+1 day');
+		$startDate = DateTime::createFromString($startDateParam);
+		$endDate = DateTime::createFromString($endDateParam);
 
-        $intervalUnit = 'day';
+		// Start at midnight on the start date, end at midnight after the end date
+		$startDate = new DateTime($startDate->format(DateTime::W3C_DATE), new \DateTimeZone(craft()->timezone));
+		$endDate = new DateTime($endDate->modify('+1 day')->format(DateTime::W3C_DATE), new \DateTimeZone(craft()->timezone));
 
-        // Prep the query
-        $query = craft()->db->createCommand()
-            ->from('users users')
-            ->select('COUNT(*) as value');
+		$intervalUnit = 'day';
 
-        if ($userGroupId)
-        {
-            $query->join('usergroups_users userGroupUsers', 'userGroupUsers.userId = users.id');
-            $query->where('userGroupUsers.groupId = :userGroupId', array(':userGroupId' => $userGroupId));
-        }
+		// Prep the query
+		$query = craft()->db->createCommand()
+			->from('users users')
+			->select('COUNT(*) as value');
 
-        // Get the chart data table
-        $dataTable = ChartHelper::getRunChartDataFromQuery($query, $startDate, $endDate, 'users.dateCreated', array(
-            'intervalUnit' => $intervalUnit,
-            'valueLabel' => Craft::t('New Users'),
-        ));
+		if ($userGroupId)
+		{
+			$query->join('usergroups_users userGroupUsers', 'userGroupUsers.userId = users.id');
+			$query->where('userGroupUsers.groupId = :userGroupId', array(':userGroupId' => $userGroupId));
+		}
 
-        // Get the total number of new users
-        $total = 0;
+		// Get the chart data table
+		$dataTable = ChartHelper::getRunChartDataFromQuery($query, $startDate, $endDate, 'users.dateCreated', array(
+			'intervalUnit' => $intervalUnit,
+			'valueLabel' => Craft::t('New Users'),
+		));
 
-        foreach($dataTable['rows'] as $row)
-        {
-            $total = $total + $row[1];
-        }
+		// Get the total number of new users
+		$total = 0;
 
-        // Return everything
-        $this->returnJson(array(
-            'dataTable' => $dataTable,
-            'total' => $total,
+		foreach($dataTable['rows'] as $row)
+		{
+			$total = $total + $row[1];
+		}
 
-            'formats' => ChartHelper::getFormats(),
-            'orientation' => craft()->locale->getOrientation(),
-            'scale' => $intervalUnit,
-        ));
-    }
+		// Return everything
+		$this->returnJson(array(
+			'dataTable' => $dataTable,
+			'total' => $total,
+
+			'formats' => ChartHelper::getFormats(),
+			'orientation' => craft()->locale->getOrientation(),
+			'scale' => $intervalUnit,
+		));
+	}
 }

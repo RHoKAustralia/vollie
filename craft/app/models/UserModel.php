@@ -40,11 +40,11 @@ class UserModel extends BaseElementModel
 	{
 		if (craft()->config->get('useEmailAsUsername'))
 		{
-			return $this->email;
+			return (string)$this->email;
 		}
 		else
 		{
-			return $this->username;
+			return (string)$this->username;
 		}
 	}
 
@@ -94,6 +94,21 @@ class UserModel extends BaseElementModel
 		}
 
 		return $groups;
+	}
+
+	/**
+	 * Sets an array of {@link UserGroupModel} objects on the user.
+	 *
+	 * @param $groups An array of {@link UserGroupModel} objects.
+	 *
+	 * @return null
+	 */
+	public function setGroups($groups)
+	{
+		if (craft()->getEdition() == Craft::Pro)
+		{
+			$this->_groups = $groups;
+		}
 	}
 
 	/**
@@ -216,7 +231,7 @@ class UserModel extends BaseElementModel
 	{
 		$this->pending = false;
 		$this->archived = false;
-	}	
+	}
 
 	/**
 	 * Returns the URL to the user's photo.

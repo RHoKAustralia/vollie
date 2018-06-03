@@ -153,22 +153,26 @@ class TemplatesService extends BaseApplicationComponent
 	 *
 	 * @return TwigEnvironment The Twig Environment instance.
 	 */
-	public function getTwig($loaderClass = null)
+	public function getTwig($loaderClass = null, $options = array())
 	{
 		if (!$loaderClass)
 		{
 			$loaderClass = __NAMESPACE__.'\\TemplateLoader';
 		}
 
-		if (!isset($this->_twigs[$loaderClass]))
+		$options = array_merge(array('safe_mode' => false), $options);
+
+		$cacheKey = $this->getTemplateMode().':'.$loaderClass.':'.md5(serialize($options));
+
+		if (!isset($this->_twigs[$cacheKey]))
 		{
 			$loader = new $loaderClass();
-			$options = $this->_getTwigOptions();
+			$options = array_merge($this->_getTwigOptions(), $options);
 
 			$twig = new TwigEnvironment($loader, $options);
 
 			$twig->addExtension(new \Twig_Extension_StringLoader());
-			$twig->addExtension(new CraftTwigExtension());
+			$twig->addExtension(new CraftTwigExtension($twig));
 
 			if (craft()->config->get('devMode'))
 			{
@@ -179,16 +183,16 @@ class TemplatesService extends BaseApplicationComponent
 			$timezone = craft()->getTimeZone();
 			$twig->getExtension('core')->setTimezone($timezone);
 
-			// Give plugins a chance to add their own Twig extensions
-			$this->_addPluginTwigExtensions($twig);
-
 			// Set our custom parser to support "include" tags using the capture mode
 			$twig->setParser(new TwigParser($twig));
 
-			$this->_twigs[$loaderClass] = $twig;
+			$this->_twigs[$cacheKey] = $twig;
+
+			// Give plugins a chance to add their own Twig extensions
+			$this->_addPluginTwigExtensions($twig);
 		}
 
-		return $this->_twigs[$loaderClass];
+		return $this->_twigs[$cacheKey];
 	}
 
 	/**
@@ -234,16 +238,36 @@ class TemplatesService extends BaseApplicationComponent
 	 *
 	 * @param mixed $template  The name of the template to load, or a StringTemplate object.
 	 * @param array $variables The variables that should be available to the template.
+	 * @param bool  $safeMode  Whether to limit what's available to in the Twig context
+	 *                         in the interest of security.
 	 *
 	 * @return string The rendered template.
 	 */
-	public function render($template, $variables = array())
+	public function render($template, $variables = array(), $safeMode = false)
 	{
-		$twig = $this->getTwig();
+		$safeMode = $this->_useSafeMode($safeMode);
+		$twig = $this->getTwig(null, array('safe_mode' => $safeMode));
 
 		$lastRenderingTemplate = $this->_renderingTemplate;
 		$this->_renderingTemplate = $template;
-		$result = $twig->render($template, $variables);
+
+		try
+		{
+			$result = $twig->render($template, $variables);
+		}
+		catch (\RuntimeException $e)
+		{
+			if (!craft()->config->get('devMode'))
+			{
+				// Throw a generic exception instead
+				throw new Exception(Craft::t('An error occurred when rendering a template.'), 0, $e);
+			}
+			else
+			{
+				throw $e;
+			}
+		}
+
 		$this->_renderingTemplate = $lastRenderingTemplate;
 		return $result;
 	}
@@ -264,7 +288,24 @@ class TemplatesService extends BaseApplicationComponent
 
 		$lastRenderingTemplate = $this->_renderingTemplate;
 		$this->_renderingTemplate = $template;
-		$result = call_user_func_array(array($twigTemplate, 'get'.$macro), $args);
+
+		try
+		{
+			$result = call_user_func_array(array($twigTemplate, 'get'.$macro), $args);
+		}
+		catch (\RuntimeException $e)
+		{
+			if (!craft()->config->get('devMode'))
+			{
+				// Throw a generic exception instead
+				throw new Exception(Craft::t('An error occurred when rendering a template.'), 0, $e);
+			}
+			else
+			{
+				throw $e;
+			}
+		}
+
 		$this->_renderingTemplate = $lastRenderingTemplate;
 
 		return (string) $result;
@@ -275,17 +316,21 @@ class TemplatesService extends BaseApplicationComponent
 	 *
 	 * @param string $template  The source template string.
 	 * @param array  $variables Any variables that should be available to the template.
+	 * @param bool   $safeMode  Whether to limit what's available to in the Twig context
+	 *                          in the interest of security.
 	 *
 	 * @return string The rendered template.
 	 */
-	public function renderString($template, $variables = array())
+	public function renderString($template, $variables = array(), $safeMode = false)
 	{
+		$safeMode = $this->_useSafeMode($safeMode);
 		$stringTemplate = new StringTemplate(md5($template), $template);
 
 		$lastRenderingTemplate = $this->_renderingTemplate;
 		$this->_renderingTemplate = 'string:'.$template;
-		$result = $this->render($stringTemplate, $variables);
+		$result = $this->render($stringTemplate, $variables, $safeMode);
 		$this->_renderingTemplate = $lastRenderingTemplate;
+
 		return $result;
 	}
 
@@ -297,50 +342,71 @@ class TemplatesService extends BaseApplicationComponent
 	 *
 	 * @param string $template The source template string.
 	 * @param mixed  $object   The object that should be passed into the template.
+	 * @param bool   $safeMode Whether to limit what's available to in the Twig context
+	 *                         in the interest of security.
 	 *
 	 * @return string The rendered template.
 	 */
-	public function renderObjectTemplate($template, $object)
+	public function renderObjectTemplate($template, $object, $safeMode = false)
 	{
+		$safeMode = $this->_useSafeMode($safeMode);
+
 		// If there are no dynamic tags, just return the template
 		if (strpos($template, '{') === false)
 		{
 			return $template;
 		}
 
-		// Get a Twig instance with the String template loader
-		$twig = $this->getTwig('Twig_Loader_String');
-
-		// Have we already parsed this template?
-		if (!isset($this->_objectTemplates[$template]))
+		try
 		{
-			// Replace shortcut "{var}"s with "{{object.var}}"s, without affecting normal Twig tags
-			$formattedTemplate = preg_replace('/(?<![\{\%])\{(?![\{\%])/', '{{object.', $template);
-			$formattedTemplate = preg_replace('/(?<![\}\%])\}(?![\}\%])/', '|raw}}', $formattedTemplate);
-			$this->_objectTemplates[$template] = $twig->loadTemplate($formattedTemplate);
+			// Get a Twig instance with the String template loader
+			$twig = $this->getTwig('Twig_Loader_String', array('safe_mode' => $safeMode));
+
+			// Have we already parsed this template?
+			$cacheKey = $template.':'.($safeMode ? 'safe' : 'unsafe');
+
+			if (!isset($this->_objectTemplates[$cacheKey]))
+			{
+				// Replace shortcut "{var}"s with "{{object.var}}"s, without affecting normal Twig tags
+				$formattedTemplate = preg_replace('/(?<![\{\%])\{(?![\{\%])/', '{{object.', $template);
+				$formattedTemplate = preg_replace('/(?<![\}\%])\}(?![\}\%])/', '|raw}}', $formattedTemplate);
+				$this->_objectTemplates[$cacheKey] = $twig->loadTemplate($formattedTemplate);
+			}
+
+			// Temporarily disable strict variables if it's enabled
+			$strictVariables = $twig->isStrictVariables();
+
+			if ($strictVariables)
+			{
+				$twig->disableStrictVariables();
+			}
+
+			// Render it!
+			$lastRenderingTemplate = $this->_renderingTemplate;
+			$this->_renderingTemplate = 'string:'.$template;
+			$result = $this->_objectTemplates[$cacheKey]->render(array(
+				'object' => $object
+			));
+
+			$this->_renderingTemplate = $lastRenderingTemplate;
+
+			// Re-enable strict variables
+			if ($strictVariables)
+			{
+				$twig->enableStrictVariables();
+			}
 		}
-
-		// Temporarily disable strict variables if it's enabled
-		$strictVariables = $twig->isStrictVariables();
-
-		if ($strictVariables)
+		catch (\RuntimeException $e)
 		{
-			$twig->disableStrictVariables();
-		}
-
-		// Render it!
-		$lastRenderingTemplate = $this->_renderingTemplate;
-		$this->_renderingTemplate = 'string:'.$template;
-		$result = $this->_objectTemplates[$template]->render(array(
-			'object' => $object
-		));
-
-		$this->_renderingTemplate = $lastRenderingTemplate;
-
-		// Re-enable strict variables
-		if ($strictVariables)
-		{
-			$twig->enableStrictVariables();
+			if (!craft()->config->get('devMode'))
+			{
+				// Throw a generic exception instead
+				throw new Exception(Craft::t('An error occurred when rendering a template.'), 0, $e);
+			}
+			else
+			{
+				throw $e;
+			}
 		}
 
 		return $result;
@@ -890,7 +956,7 @@ class TemplatesService extends BaseApplicationComponent
 		// Otherwise maybe it's a plugin template?
 
 		// Only attempt to match against a plugin's templates if this is a CP or action request.
-		if (craft()->request->isCpRequest() || craft()->request->isActionRequest())
+		if ($this->getTemplateMode() === TemplateMode::CP || craft()->request->isActionRequest())
 		{
 			// Sanitize
 			$name = craft()->request->decodePathInfo($name);
@@ -1086,7 +1152,7 @@ class TemplatesService extends BaseApplicationComponent
 			if ($otherAttributes)
 			{
 				$idNamespace = $this->formatInputId($namespace);
-				$html = preg_replace('/(?<![\w\-])((id|for|list|data\-target|data\-reverse\-target|data\-target\-prefix)=(\'|")#?)([^\.\'"][^\'"]*)\3/i', '$1'.$idNamespace.'-$4$3', $html);
+				$html = preg_replace('/(?<![\w\-])((id|for|list|aria\-labelledby|data\-target|data\-reverse\-target|data\-target\-prefix)=(\'|")#?)([^\.\'"][^\'"]*)\3/i', '$1'.$idNamespace.'-$4$3', $html);
 			}
 
 			// Bring back the textarea content
@@ -1249,6 +1315,21 @@ class TemplatesService extends BaseApplicationComponent
 	// =========================================================================
 
 	/**
+	 * Returns whether we care about Safe Mode.
+	 *
+	 * @return bool
+	 */
+	private function _useSafeMode($safeMode)
+	{
+		// If the validateUnsafeRequestParams param is set to true, Safe Mode is pointless
+		if (craft()->config->get('validateUnsafeRequestParams')) {
+			return false;
+		}
+
+		return $safeMode;
+	}
+
+	/**
 	 * Returns the Twig environment options
 	 *
 	 * @return array
@@ -1291,7 +1372,8 @@ class TemplatesService extends BaseApplicationComponent
 
 		if (PathHelper::ensurePathIsContained($name) === false)
 		{
-			throw new \Twig_Error_Loader(Craft::t('Looks like you try to load a template outside the template folder: {template}.', array('template' => $name)));
+		    Craft::log('Someone tried to load a template outside the templates folder: '. $name, LogLevel::Error);
+			throw new \Twig_Error_Loader(Craft::t('Looks like you try to load a template outside the template folder.'));
 		}
 	}
 
@@ -1522,7 +1604,7 @@ class TemplatesService extends BaseApplicationComponent
 
 		$label = HtmlHelper::encode($context['element']);
 
-		$html .= '" data-id="'.$context['element']->id.'" data-locale="'.$context['element']->locale.'" data-status="'.$context['element']->getStatus().'" data-label="'.$label.'" data-url="'.$context['element']->getUrl().'"';
+		$html .= '" data-id="'.$context['element']->id.'" data-locale="'.$context['element']->locale.'" data-status="'.$context['element']->getStatus().'" data-label="'.$label.'" data-url="'.HtmlHelper::encode($context['element']->getUrl()).'"';
 
 		if ($context['element']->level)
 		{

@@ -244,13 +244,17 @@ abstract class BaseElementFieldType extends BaseFieldType implements IPreviewabl
 	 * @inheritDoc IFieldType::getInputHtml()
 	 *
 	 * @param string $name
-	 * @param mixed  $criteria
+	 * @param mixed  $value
 	 *
 	 * @return string
 	 */
-	public function getInputHtml($name, $criteria)
+	public function getInputHtml($name, $value)
 	{
-		$variables = $this->getInputTemplateVariables($name, $criteria);
+		if ($this->element !== null && $this->element->hasEagerLoadedElements($name)) {
+			$value = $this->element->getEagerLoadedElements($name);
+		}
+
+		$variables = $this->getInputTemplateVariables($name, $value);
 		return craft()->templates->render($this->inputTemplate, $variables);
 	}
 
@@ -387,6 +391,8 @@ abstract class BaseElementFieldType extends BaseFieldType implements IPreviewabl
 	 */
 	public function getEagerLoadingMap($sourceElements)
 	{
+		$firstElement = isset($sourceElements[0]) ? $sourceElements[0] : null;
+
 		// Get the source element IDs
 		$sourceElementIds = array();
 
@@ -400,15 +406,32 @@ abstract class BaseElementFieldType extends BaseFieldType implements IPreviewabl
 			->select('sourceId as source, targetId as target')
 			->from('relations')
 			->where(
-				array('and', 'fieldId=:fieldId', array('in', 'sourceId', $sourceElementIds)),
-				array(':fieldId' => $this->model->id)
+				array(
+					'and',
+					'fieldId=:fieldId',
+					array('in', 'sourceId', $sourceElementIds),
+					array('or', 'sourceLocale=:sourceLocale', 'sourceLocale is null')
+				),
+				array(
+					':fieldId' => $this->model->id,
+					':sourceLocale' => ($firstElement ? $firstElement->locale : null),
+				)
 			)
 			->order('sortOrder')
 			->queryAll();
 
+		// Figure out which target locale to use
+		$element = $this->element;
+		$this->element = $firstElement;
+		$targetLocale = $this->getTargetLocale();
+		$this->element = $element;
+
 		return array(
 			'elementType' => $this->elementType,
-			'map' => $map
+			'map' => $map,
+			'criteria' => array(
+				'locale' => $targetLocale
+			),
 		);
 	}
 
@@ -449,22 +472,24 @@ abstract class BaseElementFieldType extends BaseFieldType implements IPreviewabl
 	 * Returns an array of variables that should be passed to the input template.
 	 *
 	 * @param string $name
-	 * @param mixed  $criteria
+	 * @param mixed  $value
 	 *
 	 * @return array
 	 */
-	protected function getInputTemplateVariables($name, $criteria)
+	protected function getInputTemplateVariables($name, $value)
 	{
 		$settings = $this->getSettings();
 
-		if (!($criteria instanceof ElementCriteriaModel))
+		if ($value instanceof ElementCriteriaModel)
 		{
-			$criteria = craft()->elements->getCriteria($this->elementType);
-			$criteria->id = false;
+			$value->status = null;
+			$value->localeEnabled = null;
 		}
-
-		$criteria->status = null;
-		$criteria->localeEnabled = null;
+		else if (!is_array($value))
+		{
+			$value = craft()->elements->getCriteria($this->elementType);
+			$value->id = false;
+		}
 
 		$selectionCriteria = $this->getInputSelectionCriteria();
 		$selectionCriteria['localeEnabled'] = null;
@@ -477,7 +502,7 @@ abstract class BaseElementFieldType extends BaseFieldType implements IPreviewabl
 			'fieldId'            => $this->model->id,
 			'storageKey'         => 'field.'.$this->model->id,
 			'name'               => $name,
-			'elements'           => $criteria,
+			'elements'           => $value,
 			'sources'            => $this->getInputSources(),
 			'criteria'           => $selectionCriteria,
 			'sourceElementId'    => (isset($this->element->id) ? $this->element->id : null),

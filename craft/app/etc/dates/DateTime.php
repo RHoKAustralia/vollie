@@ -194,7 +194,7 @@ class DateTime extends \DateTime
 								(?:\.\d+)?                       # .s (decimal fraction of a second -- not supported)
 							)?
 							(?:[ ]?(?P<ampm>(AM|PM|am|pm))?)?    # An optional space and AM or PM
-							(?:Z|(?P<tzd>[+\-]\d\d\:\d\d))?      # Z or [+ or -]hh:ss (UTC or a timezone offset)
+							(?:Z|(?P<tzd>[+\-]\d\d\:?\d\d))?      # Z or [+ or -]hh:ss (UTC or a timezone offset)
 						)?
 					)?
 				)?$/x', $date, $m))
@@ -451,6 +451,13 @@ class DateTime extends \DateTime
 		if ($interval instanceof \DateInterval)
 		{
 			$spec = 'P';
+
+			// The hour can be -1 if we just crossed DST.
+			if ($interval->h && $interval->h == '-1')
+			{
+				$interval->h = 23;
+				$interval->d--;
+			}
 
 			if ($interval->y) $spec .= $interval->y.'Y';
 			if ($interval->m) $spec .= $interval->m.'M';

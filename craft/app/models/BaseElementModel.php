@@ -166,7 +166,8 @@ abstract class BaseElementModel extends BaseModel
 	 */
 	public function __toString()
 	{
-		return (string) $this->getTitle();
+		$title = (string) $this->getTitle();
+		return $title ?: ($this->id ?: get_class($this));
 	}
 
 	/**
@@ -483,6 +484,12 @@ abstract class BaseElementModel extends BaseModel
 	 */
 	public function getDescendants($dist = null)
 	{
+		// Eager-loaded?
+		if ($this->hasEagerLoadedElements('descendants'))
+		{
+			return $this->getEagerLoadedElements('descendants');
+		}
+
 		if (!isset($this->_descendantsCriteria))
 		{
 			$this->_descendantsCriteria = craft()->elements->getCriteria($this->elementType);
@@ -510,6 +517,12 @@ abstract class BaseElementModel extends BaseModel
 	 */
 	public function getChildren($field = null)
 	{
+		// Eager-loaded?
+		if ($this->hasEagerLoadedElements('children'))
+		{
+			return $this->getEagerLoadedElements('children');
+		}
+
 		// TODO: deprecated
 		// Maintain support for the deprecated relationship-focussed getChildren() function for the element types that
 		// were around before Craft 1.3
@@ -1074,6 +1087,8 @@ abstract class BaseElementModel extends BaseModel
 	{
 		if (isset($this->_eagerLoadedElements[$handle]))
 		{
+			ElementHelper::setNextPrevOnElements($this->_eagerLoadedElements[$handle]);
+
 			return $this->_eagerLoadedElements[$handle];
 		}
 
@@ -1089,6 +1104,16 @@ abstract class BaseElementModel extends BaseModel
 	public function setEagerLoadedElements($handle, $elements)
 	{
 		$this->_eagerLoadedElements[$handle] = $elements;
+	}
+
+	/**
+	 * Returns whether the element’s content is "fresh" (unsaved and without validation errors).
+	 *
+	 * @return bool Whether the element’s content is fresh
+	 */
+	public function getHasFreshContent()
+	{
+		return (empty($this->getContent()->id) && !$this->hasErrors());
 	}
 
 	// Protected Methods

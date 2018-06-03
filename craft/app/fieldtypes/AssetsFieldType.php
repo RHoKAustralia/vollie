@@ -51,9 +51,24 @@ class AssetsFieldType extends BaseElementFieldType
 	 */
 	private $_failedFiles = array();
 
+	/**
+	 * Whether there were uploaded files with errors.
+	 *
+	 * @var bool
+	 */
+	private $_hasErrors = false;
+
 	// Public Methods
 	// =========================================================================
 
+	public function init()
+	{
+		$this->_failedFiles['disallowed'] = array();
+		$this->_failedFiles['tooBig'] = array();
+		$this->_failedFiles['error'] = array();
+
+		parent::init();
+	}
 	/**
 	 * @inheritDoc ISavableComponentType::getSettingsHtml()
 	 *
@@ -124,6 +139,14 @@ class AssetsFieldType extends BaseElementFieldType
 				Craft::t('This field’s target subfolder path is invalid: {path}', array('path' => '<code>'.$this->getSettings()->singleUploadLocationSubpath.'</code>')) .
 				'</p>';
 		}
+		catch (InvalidSourceException $e)
+		{
+			$message = $this->getSettings()->useSingleFolder ? Craft::t('This field’s single upload location Assets Source is missing') : Craft::t('This field’s default upload location Assets Source is missing');
+			return '<p class="warning">' .
+			'<span data-icon="alert"></span> ' .
+			$message .
+			'</p>';
+		}
 	}
 
 	/**
@@ -188,7 +211,8 @@ class AssetsFieldType extends BaseElementFieldType
 			{
 				$uploadedFiles[] = array(
 					'filename' => $file->getName(),
-					'location' => $file->getTempName()
+					'location' => $file->getTempName(),
+					'error' => $file->getError()
 				);
 			}
 		}
@@ -211,7 +235,8 @@ class AssetsFieldType extends BaseElementFieldType
 
 				if (!in_array($extension, $allowedExtensions))
 				{
-					$this->_failedFiles[] = $file['filename'];
+					$this->_failedFiles['disallowed'][] = $file['filename'];
+					$this->_hasErrors = true;
 				}
 			}
 
@@ -221,12 +246,28 @@ class AssetsFieldType extends BaseElementFieldType
 
 				if (!in_array($extension, $allowedExtensions))
 				{
-					$this->_failedFiles[] = $file['filename'];
+					$this->_failedFiles['disallowed'][] = $file['filename'];
+					$this->_hasErrors = true;
+				}
+
+				// Handle potential upload errors
+				if (!empty($file['error'])) {
+					$this->_hasErrors = true;
+
+					switch ($file['error']) {
+						case UPLOAD_ERR_INI_SIZE:
+						case UPLOAD_ERR_FORM_SIZE:
+							$this->_failedFiles['tooBig'][] = $file['filename'];
+							break;
+						default:
+							$this->_failedFiles['error'][] = $file['filename'];
+							Craft::log('There was an upload error while uploading '.$file['filename'], LogLevel::Warning, true);
+					}
 				}
 			}
 		}
 
-		if (!empty($this->_failedFiles))
+		if ($this->_hasErrors)
 		{
 			return true;
 		}
@@ -292,19 +333,15 @@ class AssetsFieldType extends BaseElementFieldType
 			$elementFiles = $elementFiles->find();
 		}
 
-		$filesToMove = array();
-
-		if (is_array($elementFiles) && count($elementFiles))
+		if (is_array($elementFiles) && !empty($elementFiles))
 		{
+			$filesToMove = array();
 			$settings = $this->getSettings();
+			$targetFolderId = $this->_determineUploadFolderId($settings);
 
-			if ($this->getSettings()->useSingleFolder)
+			if ($settings->useSingleFolder)
 			{
-				$targetFolderId = $this->_resolveSourcePathToFolderId(
-					$settings->singleUploadLocationSource,
-					$settings->singleUploadLocationSubpath);
-
-				// Move only the fiels with a changed folder ID.
+				// Move only the files with a changed folder ID.
 				foreach ($elementFiles as $elementFile)
 				{
 					if ($targetFolderId != $elementFile->folderId)
@@ -334,14 +371,6 @@ class AssetsFieldType extends BaseElementFieldType
 				foreach ($filesInTempSource as $file)
 				{
 					$filesToMove[] = $file->id;
-				}
-
-				// If we have some files to move, make sure the folder exists.
-				if (!empty($filesToMove))
-				{
-					$targetFolderId = $this->_resolveSourcePathToFolderId(
-						$settings->defaultUploadLocationSource,
-						$settings->defaultUploadLocationSubpath);
 				}
 			}
 
@@ -390,19 +419,24 @@ class AssetsFieldType extends BaseElementFieldType
 			}
 		}
 
-		foreach ($this->_failedFiles as $file)
-		{
-			$errors[] = Craft::t('"{filename}" is not allowed in this field.', array('filename' => $file));
+		$messages = array(
+			'disallowed' => '"{filename}" is not allowed in this field.',
+			'tooBig' => 'The uploaded file "{filename}" is too big.',
+			'error' => 'There was an error while uploading "{filename}".'
+		);
+
+		foreach ($this->_failedFiles as $errorType => $files) {
+			// Just to make sure
+			if (!isset($messages[$errorType])) {
+				$errorType = 'error';
+			}
+
+			foreach ($files as $file) {
+				$errors[] = Craft::t($messages[$errorType], array('filename' => $file));
+			}
 		}
 
-		if ($errors)
-		{
-			return $errors;
-		}
-		else
-		{
-			return true;
-		}
+		return empty($errors) ? true : $errors;
 	}
 
 	/**
@@ -454,15 +488,15 @@ class AssetsFieldType extends BaseElementFieldType
 	 */
 	protected function getInputSources()
 	{
-		// Look for the single folder setting
 		$settings = $this->getSettings();
+
+		// Authorize for the single folder and the default upload folder, whichever was chosen.
+		$folderId = $this->_determineUploadFolderId($settings, false);
+		craft()->userSession->authorize('uploadToAssetSource:'.$folderId);
 
 		if ($settings->useSingleFolder)
 		{
-			$folderId = $this->_determineUploadFolderId($settings, false);
-			craft()->userSession->authorize('uploadToAssetSource:'.$folderId);
 			$folderPath = 'folder:'.$folderId.':single';
-
 			return array($folderPath);
 		}
 
@@ -520,19 +554,22 @@ class AssetsFieldType extends BaseElementFieldType
 	 */
 	private function _resolveSourcePathToFolderId($sourceId, $subpath, $createDynamicFolders = true)
 	{
+
+		// Get the root folder in the source
+		$rootFolder = craft()->assets->getRootFolderBySourceId($sourceId);
+
+		// Make sure the root folder actually exists
+		if (!$rootFolder)
+		{
+			throw new InvalidSourceException();
+		}
+
 		// Are we looking for a subfolder?
 		$subpath = is_string($subpath) ? trim($subpath, '/') : '';
 
 		if (strlen($subpath) === 0)
 		{
-			// Get the root folder in the source
-			$folder = craft()->assets->getRootFolderBySourceId($sourceId);
-
-			// Make sure the root folder actually exists
-			if (!$folder)
-			{
-				throw new Exception('Cannot find the target folder.');
-			}
+			$folder = $rootFolder;
 		}
 		else
 		{
@@ -572,13 +609,7 @@ class AssetsFieldType extends BaseElementFieldType
 				}
 
 				// Start at the root, and, go over each folder in the path and create it if it's missing.
-				$parentFolder = craft()->assets->getRootFolderBySourceId($sourceId);
-
-				// Make sure the root folder actually exists
-				if (!$parentFolder)
-				{
-					throw new Exception('Cannot find the target folder.');
-				}
+				$parentFolder = $rootFolder;
 
 				$segments = explode('/', $subpath);
 
@@ -625,7 +656,7 @@ class AssetsFieldType extends BaseElementFieldType
 					'parentId' => $currentFolder->id,
 					'name' => $folderName,
 					'sourceId' => $currentFolder->sourceId,
-					'path' => trim($currentFolder->path.'/'.$folderName, '/').'/'
+					'path' => ($currentFolder->parentId ? $currentFolder->path.$folderName : $folderName).'/'
 				)
 			);
 			$folderId = craft()->assets->storeFolder($newFolder);
@@ -695,9 +726,9 @@ class AssetsFieldType extends BaseElementFieldType
 		}
 		catch (InvalidSubpathException $e)
 		{
-			// If this is a new element, the subpath probably just contained a token that returned null, like {id}
+			// If this is a new/disabled element, the subpath probably just contained a token that returned null, like {id}
 			// so use the user's upload folder instead
-			if (empty($this->element->id) || !$createDynamicFolders)
+			if (!isset($this->element) || !$this->element->id || !$this->element->enabled || !$createDynamicFolders)
 			{
 				$userModel = craft()->userSession->getUser();
 				$userFolder = craft()->assets->getUserFolder($userModel);
@@ -717,7 +748,7 @@ class AssetsFieldType extends BaseElementFieldType
 					$folderId = $this->_createSubFolder($userFolder, $folderName);
 				}
 
-				IOHelper::ensureFolderExists(craft()->path->getAssetsTempSourcePath().$folderName);
+				IOHelper::ensureFolderExists(craft()->path->getAssetsTempSourcePath().$userFolder->path.'/'.$folderName);
 			}
 			else
 			{

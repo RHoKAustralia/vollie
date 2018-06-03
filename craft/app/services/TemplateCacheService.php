@@ -105,6 +105,12 @@ class TemplateCacheService extends BaseApplicationComponent
 			return;
 		}
 
+		// Don't return anything if it's not a global request and the path > 255 characters.
+		if (!$global && strlen($this->_getPath()) > 255)
+		{
+			return;
+		}
+
 		// Take the opportunity to delete any expired caches
 		$this->deleteExpiredCachesIfOverdue();
 
@@ -232,6 +238,12 @@ class TemplateCacheService extends BaseApplicationComponent
 		// Can't use getResourceUrl() here because that will append ?d= or ?x= to the URL.
 		if (strpos(stripslashes($body), UrlHelper::getSiteUrl(craft()->config->getResourceTrigger().'/transforms')))
 		{
+			return;
+		}
+
+		if (!$global && (strlen($path = $this->_getPath()) > 255))
+		{
+			Craft::log('Skipped adding '.$key.' to template cache table because the path is > 255 characters: '.$path, LogLevel::Warning);
 			return;
 		}
 
@@ -428,6 +440,7 @@ class TemplateCacheService extends BaseApplicationComponent
 	 *                                     (Defaults to `true`.)
 	 *
 	 * @return bool
+	 * @throws \Exception
 	 */
 	public function deleteCachesByElementId($elementId, $deleteQueryCaches = true)
 	{
@@ -443,6 +456,8 @@ class TemplateCacheService extends BaseApplicationComponent
 
 		if ($deleteQueryCaches && craft()->config->get('cacheElementQueries'))
 		{
+			$taskCreated = false;
+
 			// If there are any pending DeleteStaleTemplateCaches tasks, just append this element to it
 			$task = craft()->tasks->getNextPendingTask('DeleteStaleTemplateCaches');
 
@@ -469,9 +484,11 @@ class TemplateCacheService extends BaseApplicationComponent
 
 				// Set the new settings and save the task
 				$task->settings = $settings;
-				craft()->tasks->saveTask($task, false);
+
+                $taskCreated = craft()->tasks->saveTask($task, false);
 			}
-			else
+
+			if (!$taskCreated)
 			{
 				craft()->tasks->createTask('DeleteStaleTemplateCaches', null, array(
 					'elementId' => $elementId
@@ -498,10 +515,8 @@ class TemplateCacheService extends BaseApplicationComponent
 		{
 			return $this->deleteCacheById($cacheIds);
 		}
-		else
-		{
-			return false;
-		}
+
+		return false;
 	}
 
 	/**

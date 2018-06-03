@@ -1,5 +1,9 @@
 <?php
 
+// Get the last error at the earliest opportunity, so we can catch max_input_vars errors
+// see https://stackoverflow.com/a/21601349/1688568
+$lastError = error_get_last();
+
 // Make sure this is PHP 5.3 or later
 // -----------------------------------------------------------------------------
 
@@ -31,9 +35,9 @@ if (isset($_SERVER['PATH_INFO']) && $_SERVER['PATH_INFO'] == '/testPathInfo')
 // PHP environment normalization
 // -----------------------------------------------------------------------------
 
-// These have been deprecated in PHP 6 in favor of default_charset, which defaults to 'UTF-8'
+// These have been deprecated in PHP 5.6 in favor of default_charset, which defaults to 'UTF-8'
 // http://php.net/manual/en/migration56.deprecated.php
-if (PHP_VERSION_ID < 60000)
+if (PHP_VERSION_ID < 50600)
 {
 	// Set MB to use UTF-8
 	mb_internal_encoding('UTF-8');
@@ -59,4 +63,11 @@ date_default_timezone_set('UTC');
 // -----------------------------------------------------------------------------
 
 $app = require 'bootstrap.php';
+
+// If there was a max_input_vars error, kill the request before we start processing it with incomplete data
+if ($lastError && strpos($lastError['message'], 'max_input_vars') !== false)
+{
+	throw new \Craft\ErrorException($lastError['message']);
+}
+
 $app->run();

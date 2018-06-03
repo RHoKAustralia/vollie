@@ -260,9 +260,7 @@ class AssetElementType extends BaseElementType
 	 */
 	public function getDefaultTableAttributes($source = null)
 	{
-		$attributes = array('filename', 'size', 'dateModified');
-
-		return $attributes;
+		return array('filename', 'size', 'dateModified');
 	}
 
 	/**
@@ -487,7 +485,8 @@ class AssetElementType extends BaseElementType
 				'value'     => $element->filename,
 				'errors'    => $element->getErrors('filename'),
 				'first'     => true,
-				'required'  => true
+				'required'  => true,
+				'class'     => 'renameHelper'
 			)
 		));
 
@@ -630,7 +629,7 @@ class AssetElementType extends BaseElementType
 	private function _assembleSourceInfoForFolder(AssetFolderModel $folder, $includeNestedFolders = true)
 	{
 		$source = array(
-			'label'     => ($folder->parentId ? $folder->name : Craft::t($folder->name)),
+			'label'     => $folder->parentId ? $folder->name : Craft::t($folder->name),
 			'hasThumbs' => true,
 			'criteria'  => array('folderId' => $folder->id),
 			'data'      => array('upload' => is_null($folder->sourceId) ? true : craft()->assets->canUserPerformAction($folder->id, 'uploadToAssetSource'))

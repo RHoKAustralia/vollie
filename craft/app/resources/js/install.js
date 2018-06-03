@@ -1,11 +1,3 @@
-/**
- * @author    Pixel & Tonic, Inc. <support@pixelandtonic.com>
- * @copyright Copyright (c) 2014, Pixel & Tonic, Inc.
- * @license   http://craftcms.com/license Craft License Agreement
- * @see       http://craftcms.com
- * @package   craft.app.resources
- */
-
 (function($) {
 
 Craft.Installer = Garnish.Base.extend(
@@ -225,7 +217,7 @@ Craft.Installer = Garnish.Base.extend(
 	focusFirstInput: function()
 	{
 		setTimeout($.proxy(function() {
-			this.$currentScreen.find('input:first').focus();
+			this.$currentScreen.find('input:first').trigger('focus');
 		}, this), Craft.Installer.duration);
 	}
 

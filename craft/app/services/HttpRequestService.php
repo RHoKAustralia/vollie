@@ -51,6 +51,11 @@ class HttpRequestService extends \CHttpRequest
 	/**
 	 * @var bool
 	 */
+	private $_isSingleActionRequest = false;
+
+	/**
+	 * @var bool
+	 */
 	private $_checkedRequestType = false;
 
 	/**
@@ -127,11 +132,7 @@ class HttpRequestService extends \CHttpRequest
 		}
 
 		// Get the path segments
-		$this->_segments = array_filter(explode('/', $path), function($value)
-		{
-			// Explicitly check in case there is a 0 in a segment (i.e. foo/0 or foo/0/bar)
-			return $value !== '';
-		});
+		$this->_segments = $this->_getSegments($path);
 
 		// Is this a CP request?
 		$this->_isCpRequest = ($this->getSegment(1) == craft()->config->get('cpTrigger'));
@@ -179,7 +180,7 @@ class HttpRequestService extends \CHttpRequest
 				$newPath = $this->decodePathInfo($match[1]);
 
 				// Reset the segments without the pagination stuff
-				$this->_segments = array_filter(explode('/', $newPath));
+				$this->_segments = $this->_getSegments($newPath);
 			}
 		}
 
@@ -329,6 +330,15 @@ class HttpRequestService extends \CHttpRequest
 	{
 		$this->_checkRequestType();
 		return $this->_isActionRequest;
+	}
+
+	/**
+	 * Returns whether the current request is solely an action request.
+	 */
+	public function isSingleActionRequest()
+	{
+		$this->_checkRequestType();
+		return $this->_isSingleActionRequest;
 	}
 
 	/**
@@ -508,6 +518,34 @@ class HttpRequestService extends \CHttpRequest
 		{
 			throw new HttpException(400, Craft::t('POST param “{name}” doesn’t exist.', array('name' => $name)));
 		}
+	}
+
+	/**
+	 * Returns a POST parameter. If the validateUnsafeRequestParams config setting has been set to `true`,
+	 * and this is a front-end request, then the POST parameter’s value will be validated with
+	 * {@link SecurityService::validateData()} before being returned, ensuring that the value had not
+	 * been tampered with by the user.
+	 *
+	 * @param string $name The dot-delimited name of the POST param to be fetched.
+	 *
+	 * @return mixed The value of the corresponding POST param
+	 * @thorws HttpException if the param did not validate
+	 */
+	public function getValidatedPost($name)
+	{
+		$value = $this->getPost($name);
+
+		if ($value !== null && $this->isSiteRequest() && craft()->config->get('validateUnsafeRequestParams'))
+		{
+			$value = craft()->security->validateData($value);
+
+			if ($value === false)
+			{
+				throw new HttpException(400, Craft::t('POST param “{name}” was invalid.', array('name' => $name)));
+			}
+		}
+
+		return $value;
 	}
 
 	/**
@@ -825,11 +863,6 @@ class HttpRequestService extends \CHttpRequest
 			HeaderHelper::setHeader(array('Vary' => 'Accept-Encoding'));
 		}
 
-		if (!ob_get_length())
-		{
-			HeaderHelper::setLength($length);
-		}
-
 		$content = mb_substr($content, $contentStart, $length, '8bit');
 
 		if ($terminate)
@@ -910,7 +943,7 @@ class HttpRequestService extends \CHttpRequest
 
 	// Rename getIsX() => isX() functions for consistency
 	//  - We realize that these methods could be called as if they're properties (using CComponent's magic getter) but
-    //    we're trying to resist the temptation of magic methods for the sake of code obviousness.
+	//    we're trying to resist the temptation of magic methods for the sake of code obviousness.
 
 	/**
 	 * Alias of {@link getIsSecureConnection()}.
@@ -1117,11 +1150,20 @@ class HttpRequestService extends \CHttpRequest
 	 */
 	public function getQueryStringWithoutPath()
 	{
-		$queryData = $this->getQuery();
+		// Get the full query string
+		$queryString = $this->getQueryString();
+		$parts = explode('&', $queryString);
 
-		unset($queryData[craft()->urlManager->pathParam]);
+		foreach ($parts as $key => $part)
+		{
+			if (strpos($part, craft()->urlManager->pathParam.'=') === 0)
+			{
+				unset($parts[$key]);
+				break;
+			}
+		}
 
-		return http_build_query($queryData);
+		return implode('&', $parts);
 	}
 
 	/**
@@ -1466,6 +1508,21 @@ class HttpRequestService extends \CHttpRequest
 	// =========================================================================
 
 	/**
+	 * Returns the segments of a given path.
+	 *
+	 * @param string $path
+	 * @return string[]
+	 */
+	private function _getSegments($path)
+	{
+		return array_values(array_filter(explode('/', $path), function($segment)
+		{
+			// Explicitly check in case there is a 0 in a segment (i.e. foo/0 or foo/0/bar)
+			return $segment !== '';
+		}));
+	}
+
+	/**
 	 * Returns the query string path.
 	 *
 	 * @return string
@@ -1505,51 +1562,48 @@ class HttpRequestService extends \CHttpRequest
 				{
 					$loginPath       = craft()->config->getCpLoginPath();
 					$logoutPath      = craft()->config->getCpLogoutPath();
-					$setPasswordPath = craft()->config->getCpSetPasswordPath();
 				}
 				else
 				{
 					$loginPath       = trim(craft()->config->getLocalized('loginPath'), '/');
 					$logoutPath      = trim(craft()->config->getLocalized('logoutPath'), '/');
-					$setPasswordPath = trim(craft()->config->getLocalized('setPasswordPath'), '/');
 				}
 
-				$verifyEmailPath = 'verifyemail';
+				$hasTriggerMatch = ($firstSegment == craft()->config->get('actionTrigger') && count($this->_segments) > 1);
+				$hasActionParam = ($actionParam = $this->getParam('action')) !== null;
+				$hasSpecialPath = in_array($this->_path, array($loginPath, $logoutPath));
 
-				if (
-					($triggerMatch = ($firstSegment == craft()->config->get('actionTrigger') && count($this->_segments) > 1)) ||
-					($actionParam = $this->getParam('action')) !== null ||
-					($specialPath = in_array($this->_path, array($loginPath, $logoutPath, $setPasswordPath, $verifyEmailPath)))
-				)
+				if ($hasTriggerMatch || $hasActionParam || $hasSpecialPath)
 				{
 					$this->_isActionRequest = true;
 
-					if ($triggerMatch)
+					// Important we check in this specific order:
+					// 1) /actions/some/action
+					// 2) any/uri?action=some/action
+					// 3) special/uri
+
+					if ($hasTriggerMatch)
 					{
 						$this->_actionSegments = array_slice($this->_segments, 1);
+						$this->_isSingleActionRequest = true;
 					}
-					else if ($actionParam)
+					else if ($hasActionParam)
 					{
 						$actionParam = $this->decodePathInfo($actionParam);
-						$this->_actionSegments = array_filter(explode('/', $actionParam));
+						$this->_actionSegments = array_values(array_filter(explode('/', $actionParam)));
+						$this->_isSingleActionRequest = empty($this->_path);
 					}
 					else
 					{
+						$this->_isSingleActionRequest = true;
+
 						if ($this->_path == $loginPath)
 						{
 							$this->_actionSegments = array('users', 'login');
 						}
-						else if ($this->_path == $logoutPath)
-						{
-							$this->_actionSegments = array('users', 'logout');
-						}
-						else if ($this->_path == $verifyEmailPath)
-						{
-							$this->_actionSegments = array('users', 'verifyemail');
-						}
 						else
 						{
-							$this->_actionSegments = array('users', 'setpassword');
+							$this->_actionSegments = array('users', 'logout');
 						}
 					}
 				}

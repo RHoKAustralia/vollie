@@ -58,7 +58,7 @@ class Et
 	 */
 	public function __construct($endpoint, $timeout = 30, $connectTimeout = 30)
 	{
-		$endpoint .= craft()->config->get('endpointSuffix');
+		$endpoint .= craft()->config->get('elliottUrlSuffix');
 
 		$this->_endpoint = $endpoint;
 		$this->_timeout = $timeout;
@@ -75,21 +75,20 @@ class Et
 			'requestIp'         => craft()->request->getIpAddress(),
 			'requestTime'       => DateTimeHelper::currentTimeStamp(),
 			'requestPort'       => craft()->request->getPort(),
-			'localBuild'        => CRAFT_BUILD,
 			'localVersion'      => CRAFT_VERSION,
 			'localEdition'      => craft()->getEdition(),
 			'userEmail'         => $userEmail,
-			'track'             => CRAFT_TRACK,
 			'showBeta'          => craft()->config->get('showBetaUpdates'),
 			'serverInfo'        => array(
 				'extensions'    => get_loaded_extensions(),
 				'phpVersion'    => PHP_VERSION,
 				'mySqlVersion'  => craft()->db->getServerVersion(),
 				'proc'          => function_exists('proc_open') ? 1 : 0,
+				'totalLocales'  => count(craft()->i18n->getSiteLocales()),
 			),
 		));
 
-		$this->_userAgent = 'Craft/'.craft()->getVersion().'.'.craft()->getBuild();
+		$this->_userAgent = 'Craft/'.craft()->getVersion();
 	}
 
 	/**
@@ -320,7 +319,11 @@ class Et
 
 		if (($keyFile = IOHelper::fileExists($licenseKeyPath)) !== false)
 		{
-			return trim(preg_replace('/[\r\n]+/', '', IOHelper::getFileContents($keyFile)));
+			$key = trim(preg_replace('/[\r\n]+/', '', IOHelper::getFileContents($keyFile)));
+			if (strlen($key) === 250)
+			{
+				return $key;
+			}
 		}
 
 		return null;
@@ -352,7 +355,7 @@ class Et
 	private function _setLicenseKey($key)
 	{
 		// Make sure the key file does not exist first. Et will never overwrite a license key.
-		if (($keyFile = IOHelper::fileExists(craft()->path->getLicenseKeyPath())) == false)
+		if ($this->_getLicenseKey() === null)
 		{
 			$keyFile = craft()->path->getLicenseKeyPath();
 

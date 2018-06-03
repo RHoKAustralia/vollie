@@ -151,7 +151,7 @@ class TagsController extends BaseController
 		$this->requirePostRequest();
 		$this->requireAjaxRequest();
 
-		$search = craft()->request->getPost('search');
+		$search = trim(craft()->request->getPost('search'));
 		$tagGroupId = craft()->request->getPost('tagGroupId');
 		$excludeIds = craft()->request->getPost('excludeIds', array());
 
@@ -173,7 +173,14 @@ class TagsController extends BaseController
 		$tagTitleLengths = array();
 		$exactMatch = false;
 
-		$normalizedSearch = StringHelper::normalizeKeywords($search);
+		if (craft()->config->get('allowSimilarTags'))
+		{
+			$search = StringHelper::normalizeKeywords($search, array(), false);
+		}
+		else
+		{
+			$search = StringHelper::normalizeKeywords($search);
+		}
 
 		foreach ($tags as $tag)
 		{
@@ -184,9 +191,16 @@ class TagsController extends BaseController
 
 			$tagTitleLengths[] = mb_strlen($tag->getContent()->title);
 
-			$normalizedTitle = StringHelper::normalizeKeywords($tag->getContent()->title);
+			if (craft()->config->get('allowSimilarTags'))
+			{
+				$title = StringHelper::normalizeKeywords($tag->getContent()->title, array(), false);
+			}
+			else
+			{
+				$title = StringHelper::normalizeKeywords($tag->getContent()->title);
+			}
 
-			if ($normalizedTitle == $normalizedSearch)
+			if ($title == $search)
 			{
 				$exactMatches[] = 1;
 				$exactMatch = true;
@@ -217,7 +231,7 @@ class TagsController extends BaseController
 
 		$tag = new TagModel();
 		$tag->groupId = craft()->request->getRequiredPost('groupId');
-		$tag->getContent()->title = craft()->request->getRequiredPost('title');
+		$tag->getContent()->title = trim(craft()->request->getRequiredPost('title'));
 
 		if (craft()->tags->saveTag($tag))
 		{
